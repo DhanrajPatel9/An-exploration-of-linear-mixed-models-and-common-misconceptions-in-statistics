@@ -1,0 +1,444 @@
+---
+title: "STA303 Portfolio"
+subtitle: "An exploration of linear mixed models and common misconceptions in statistics"
+author: "Dhanraj Patel"
+date: 2022-02-17
+lang: "en"
+output:
+ pdf_document:
+  template: template.tex
+  toc: true
+  toc_depth: 2
+titlepage: true
+titlepage-color: "002A5C"
+titlepage-text-color: "FFFFFF"
+titlepage-rule-color: "FFFFFF"
+titlepage-rule-height: 2
+urlcolor: blue
+linkcolor: black
+---
+
+
+
+\listoffigures
+
+\newpage
+
+
+
+# Introduction
+
+Within this portfolio we will be exploring many different aspects of statistics. The task revolves around using linear mixed models to solve a complex issue involving both random and fixed effects. Extending our knowledge of linear regression linear mixed model will incorporate both the fixed effects, random effects and the interaction between them. In addition, we will be creating and comparing different type of linear mixed models and exploring different sources of their variances to ultimately decide which model is best for our problem. From this, we will arrive at the model which best explains which treatment of pest control yields the largest amount of strawberries while accounting for the random variation between plants. 
+
+Moving on, in the next section we will be analyzing both confidence intervals and values to better understand how to use these important statistical tools and what information they give us. Both these tools are widely used and unfortunately often used erroneously which often leads to results that are unreproducible. By using simulations and functions to interpret values we will aim to understand how these tools can be used and what meaning do their results convey. Particularly, with P values we will be discussing the controversy surrounding them and the dangers of interpreting the value incorrectly. 
+
+Furthermore, this portfolio will discuss what reprex is, how it can be effectively used to reproduce code errors and an example of its usage. Lastly, in this portfolio there will be writing example provided commenting on an article written by Motulsky (2014).
+
+
+\newpage
+
+# Statistical skills sample
+
+## Task 1: Setting up libraries and seed value
+
+```{r setup_portfolio, message=FALSE}
+library(tidyverse) # setting up library
+last3digplus <- 100 + 168 # seed value based on student number 
+```
+
+## Task 2a: Return to Statdew Valley: exploring sources of variance in a balanced experimental design (teaching and learning world)
+
+### Growinng your (grandmother's) strawberry patch
+
+```{r}
+
+source("grow_my_strawberries.R") # source file
+
+my_patch <- grow_my_strawberries(seed = last3digplus) # running grow_my_strawberries with appropriate seed
+
+my_patch <- my_patch %>% 
+  mutate(treatment =  as_factor(treatment)) #altering treatment as factor
+
+my_patch <- my_patch %>% 
+  mutate(treatment = fct_relevel(treatment, "No netting", "Netting", "Scarecrow")) # re-leveling treatment factors as specified
+
+
+
+```
+
+### Plotting the strawberry patch
+
+
+```{r, fig.height=5, fig.cap="Target figure for task 2a"}
+#plotting values of strawberry patch
+tibble(my_patch) %>% 
+  ggplot(aes(x = sort(patch), y = yield, color = treatment, fill = treatment)) +
+  geom_point(pch =  25) + #assigning proper coordinate data values
+  #aesthetics
+  scale_color_manual(values = c("No netting"= "#78BC61", "Netting" = "#E03400", "Scarecrow" = "#520048"))+ 
+  scale_fill_manual(values = c("No netting" = "#78BC61", "Netting" = "#E03400", "Scarecrow" = "#520048"))+
+  theme_minimal() +
+  xlab("patch") +
+  ylab("yield")+
+  labs(caption = "Created by Dhanraj Patel in STA303, Winter 2022")
+```
+
+### Demonstrating calculation of sources of variance in a least-squares modelling context
+
+#### Model formula
+
+$$y_{ijk} = \mu + \alpha_i +b_j + (\alpha b)_{ij} + \epsilon_{ijk} $$
+$$\epsilon_{ijk} \sim N(0, \sigma^2) $$
+$$b_k \sim N(0, \sigma^{2}_{b} ) $$
+$$ (\alpha b)_{ij} \sim N(0, \sigma^{2}_{\alpha b} ) $$
+where:
+
+- $y_{ijk}$: The the total yield of strawberries for the k'th harvest, for the jth patch of strawberries and while using the treatment i.
+
+
+- $\mu$: Grand mean of strawberry production
+
+- $\alpha_i$: The fixed effects of the treatment for treatment i.
+
+- $b_j$: The random effects of patches of strawberries for patch j
+
+- $(\alpha b)_{ij}$: The random effect interaction term for the interaction between treatment and patches of strawberries. 
+
+- $\epsilon_{ijk}$: Random error term for the model
+
+
+```{r}
+## Setting up tibbles
+
+my_patch
+
+agg_patch <- tibble(my_patch) %>%
+  group_by(patch) %>% 
+  summarize(yield_avg_patch = mean(yield), .groups = "drop") 
+
+agg_int <- tibble(my_patch) %>%
+  group_by(patch, treatment) %>% 
+  summarize(yield_avg_int = mean(yield), .groups = "drop")
+
+int_mod <- lm(yield ~ treatment * patch, data = my_patch)
+
+
+## Setting up models
+
+patch_mod <- lm(yield_avg_patch ~ 1, data = agg_patch)
+
+
+agg_mod <- lm(yield_avg_int ~ treatment + patch, data = agg_int)
+
+## Finding variance values
+
+var_patch <- summary(patch_mod)$sigma^2 - (summary(agg_mod)$sigma^2)/3
+  
+var_int <- summary(int_mod)$sigma^2
+
+var_ab <- summary(agg_mod)$sigma^2 - var_int/2
+```
+
+
+```{r}
+## Setting up tibbles Creating table showcasing variance values found earlier
+tibble(`Source of variation` = c("var_patch", 
+                                 "var_ab", 
+                                 "var_int"),
+       Variance = c(var_patch, var_ab, var_int),
+       Proportion = c(round(var_patch/(var_patch + var_ab + var_int), 2),
+                      round(var_ab/(var_patch + var_ab + var_int), 2),
+                      round(var_int/(var_patch + var_ab + var_int),2) )) %>% 
+  knitr::kable(caption = "Table of the sources of Variance")
+```
+
+
+## Task 2b: Applying linear mixed models for the strawberry data (practical world)
+
+```{r, warning=FALSE}
+## Creating models as per specification
+mod0 <- lm(yield ~ treatment, data = my_patch)
+summary(mod0)
+mod1 <- lme4::lmer(yield ~ treatment + (1|patch), data = my_patch)
+summary(mod1)
+mod2 <- lme4::lmer(yield ~ treatment + (1|patch) + (1|patch:treatment), data = my_patch)
+summary(mod2)
+
+#comparing models using lrtest
+lmtest::lrtest(mod1, mod2)
+
+lmtest::lrtest(mod0, mod2)
+
+lmtest::lrtest(mod0, mod1)
+
+```
+
+
+Before continuing it is important to note that the models were fit using REML instead of ML. REML is a two stage approach where estimates where the estimates of random effects are conditioned based off the fixed effects in the model and provides unbiased estimates of our variance components. ML variances estimates are usually estimated smaller than the actual value making us more likely to pick models with simple random effect structures. 
+
+REML is preferred if we need to estimate the random and fixed model parameters or if there is a larger number of parameters. ML is preferred if we are comparing two nested models based off their fixed effects. In this situation REML was used as the fixed effects were the same and our goal is to estimate all our (random and fixed) model parameters.
+
+### Justification and interpreation
+
+When choosing a final model it is important that the chosen model is both understandable and correct to the situation at hand. As for model 0 it is a linear model that does not take take the random effect of each plant into effect. In addition, when choosing the best model it is important to consider the proportion of variance that is not explained by the fixed effects, the fixed effect coefficients and the lrtest. 
+
+Using our table found in 2a) we know that about half the variance proportion belongs to the variance explained by the interaction between patch and treatment, after accounting for the fixed effects and other sources. Since model 2 is the only model that includes the interaction term it is the best model in this case as the variation can be explained by the model itself. For mod0 and mod1 the models do not have an interaction term so this huge proportion of variance would remain unexplained by the model. 
+
+In addition using the lrtest to compare all possible combinations of models gives us strong evidence against the hypothesis that the models without both the random effects term and the interaction term as good as a model that includes both the random effects term and the interaction term. Thus, the lrtest allows us to conclude mod2 is the best model.
+
+Lastly, With the fixed coefficient we understand that when the random effects are fixed/(variability accounted for) the effect that the treatment will have on the yield. Since all models used the same fixed effects, with all the random effects fixed (interaction term is considered random effect) then we see that all models have the same value for the fixed coefficient. With no netting (intercept) yielding 571.62 kgs of strawberries, netting resulting in 754.63 kgs of strawberries and lastly scarecrow with the best results with 773.89 kgs of strawberries. To conclude, mod2 is the best model. 
+
+
+## Task 3a: Building a confidence interval interpreter
+
+```{r ci_template, warning = FALSE}
+#creating CI interpreter
+interpret_ci <- function(lower, upper, ci_level, stat){
+  if(!is.character(stat)) {
+    #warning if not character type
+    warning("
+    Warning:
+    stat should be a character string that describes the statistics of 
+    interest.")
+  } else if(!is.numeric(lower)) {
+    # produce a warning if lower isn't numeric
+    warning("The lower bound of the Confidence interval must be an integer.")
+  } else if(!is.numeric(upper)) {
+    # produce a warning if upper isn't numeric
+    warning("The upper bound of the Confidence interval must be an integer.")
+  } else if(!is.numeric(ci_level) | ci_level < 0 | ci_level > 100) {
+    # produce a warning if ci_level isn't appropriate
+    warning("The confidence level needs to be an integer between (inclusive) 0 and 100.")
+  } else{
+    # print interpretation
+  str_c("For a confidence interval of ", ci_level, " percent for the ", stat, " we can be ", ci_level, " percent confident that the population parameter is between the lower and upper bounds of: ", lower, " and ", upper, ".")
+  }
+}
+
+
+# Test 1
+ci_test1 <- interpret_ci(10, 20, 99, "mean number of shoes owned by students")
+
+# Test 2
+ci_test2 <- interpret_ci(10, 20, -1, "mean number of shoes owned by students")
+
+# Test 3
+ci_test3 <- interpret_ci(10, 20, 95, 99)
+```
+
+__CI function test 1:__ `r ci_test1`
+
+__CI function test 2:__ `r ci_test2`
+
+__CI function test 3:__ `r ci_test3`
+
+## Task 3b: Building a p value interpreter
+
+" Instead the strength of evidence should be discussed appropriately"
+
+```{r pval_template, warning = FALSE}
+
+interpret_pval <- function(pval, nullhyp){
+  #warning if nullhyp is not a character string
+  if(!is.character(nullhyp)) {
+    warning("
+            The value of nullhyp needs to be a character string.")
+  } else if(!is.numeric(pval)) { # warning if pval is not a integer
+    warning("You p value needs to be a numerical value.")
+  } else if(pval > 1 | pval < 0) { #waring if p value is out of bounds
+    warning("
+            The pval value can not be greater than 1 or less than 0.")
+    #Different possible cases of p value handled seperetly
+  } else if(pval == 0){
+    str_c("The p value is 0, from this we have stronge evidence against that ", nullhyp, ".")
+  }else if(pval < 0.001){
+    str_c("The p value is <.001, from this we have stronge evidence against that ", nullhyp, ".")
+  } else if(round(pval, 3) >= 0.001 & round(pval, 3) <= 0.05 ){
+    str_c("The p value is: ",round(pval, 3), " from this we have stronge evidence against that ", nullhyp, ".")
+  } else if(round(pval, 3) > 0.05 ){
+    str_c("The p value is: ", round(pval, 3), " from this we have weak evidence against that ", nullhyp, ".")
+  }  
+  
+}
+
+#test cases
+
+pval_test1 <- interpret_pval(0.0000000003,
+"the mean grade for statistics students is the same as for non-stats students")
+
+pval_test2 <- interpret_pval(0.0499999,
+"the mean grade for statistics students is the same as for non-stats students")
+
+pval_test3 <- interpret_pval(0.050001,
+"the mean grade for statistics students is the same as for non-stats students")
+
+pval_test4 <- interpret_pval("0.05", 7)
+
+```
+
+__p value function test 1:__ `r pval_test1`
+
+__p value function test 2:__ `r pval_test2`
+
+__p value function test 3:__ `r pval_test3`
+
+__p value function test 4:__ `r pval_test4`
+
+## Task 3c: User instructions and disclaimer
+
+### Instructions
+
+Write brief instructions for how to use your two interpreters to someone who is new to statistics, but has
+been told they need to apply some basic statistical methods in their summer research project.
+This should touch on what a null hypothesis is and what a population parameter is, and should give
+some examples and tips on wording a null hypothesis appropriately. It should also mention some common
+pitfalls in interpreting frequentist confidence intervals
+
+
+Statistics at first can be quite daunting with lots of complex sounding terminology, so in this section I will attempt to explain what a confidence interval and p value are. Starting off with confidence intervals, one goal of statistics is to find out values for a whole population of people using only samples. For example if we wanted to know the mean show size of all Canadians it would be difficult to ask all 30+ million Canadians their shoe size. However, if we had a large enough sample of Canadians we could create a confidence interval representing the mean show size of all Canadians. In this, example the mean shoe size is a population parameter as it is the value we want to find for all of the population. This is in contrast to the mean shoe size of the Canadians in the sample in our hypothetical study which is called the sample statistic.
+
+Using only a sample we might be able to find the actual mean shoe size for the entire population of Canadians (population parameter), but we can use a confidence interval to find an upper and lower range of values of the actual mean shoe size of all Canadians. A confidence interval has 3 parts, a percentage confidence level, an upper and lower bound. The interpretation of a confidence interval is that within an x percent confidence level we can be x percent confident that the actual population parameter is within the upper and lower bounds. It is important to keep in mind that if the confidence interval percent is not 100 then there is a chance that the population parameter is not in the upper and lower bounds.
+
+Moving on in statistics the p value is a statistical value that indicates if there is a significant deviation between two statistical values. The p value is between 0 and 1 and the lower the value the most significant the deviations between the two values. To better understand p values you first need to understand the null hypothesis and alternative hypothesis. When conducting an experiment, to avoid biasing the the study to produce a significant result it is first assumed that there is no significant deviation between the two values. This is the null hypothesis where it is first assumed that there is no significant deviation. In contrast, there is the alternative which is the opposite which states that there is a significant deviation between 2 values. Whether we accept the null hypothesis or alternative hypothesis at the end of the study depends on our p value. If the p value is greater than 0.05 then we fail to reject the null hypothesis and there was no significant deviation between values and if the v value is equal or smaller than 0.05 then we reject the null hypothesis and accept the alternative hypothesis.   
+
+
+### Disclaimer
+
+In the previous section you may have noticed that the difference between rejecting and failing to reject the null hypothesis depended on whether the p value was less or greater than 0.05. You might be wonder whats so special about 0.05 in particular, why can't the cut off be 0.04 or 0.06? The reason the cut off is 0.05 is because mainly that it is the agreed upon cutoff in the science community. That being said is a study that produces a p value of .49 much better than a study where the p value is .051? While 0.05 is the generally accepted cut off point, there is a lot of caution that needs to be used to interpret the meaning of the p value based of your experiment. Caution must be used to properly interpret the p value and what it means contextually for any study.
+
+
+## Task 4: Creating a reproducible example (reprex)
+
+In the world of software it is important to be able to reproduce an error or other form of an issue that you might have to deal with. Sometimes it might not be possible for others to physically come to your computer to help resolve the issue, so in these cases reprex can be used. Reprex in short are examples most often bugs or other errors that can be reproduced by others, this makes debugging much easier especially in online communication. By using Reprex other sill be able to reproduce your code/issue and will be able to assist you. When producing a reprex there are three main things you need to consider. One thing is that you have the appropriate library calls so that reprex will be able to run. In addition, you need to make sure that your reproduced code encapsulates your issue fully and important parts are not left out. Lastly, you need to ensure that there is no part of your code that is unnecessary to the issue that could distract from the issue. 
+
+
+
+```r
+my_data <- tibble(group = rep(1:10, each=10),
+  value = c(16, 18, 19, 15, 15, 23, 16, 8, 18, 18, 16, 17, 17,
+    16, 37, 23, 22, 13, 8, 35, 20, 19, 21, 18, 18, 18,
+    17, 14, 18, 22, 15, 27, 20, 15, 12, 18, 15, 24, 18,
+    21, 28, 22, 15, 18, 21, 18, 24, 21, 12, 20, 15, 21,
+    33, 15, 15, 22, 23, 27, 20, 23, 14, 20, 21, 19, 20,
+    18, 16, 8, 7, 23, 24, 30, 19, 21, 25, 15, 22, 12,
+    18, 18, 24, 23, 32, 22, 11, 24, 11, 23, 22, 26, 5,
+    16, 23, 26, 20, 25, 34, 27, 22, 28))
+#> Error in tibble(group = rep(1:10, each = 10), value = c(16, 18, 19, 15, : could not find function "tibble"
+my_summary <- my_data %>%
+  summarize(group_by = group, mean_val = mean(value))
+#> Error in my_data %>% summarize(group_by = group, mean_val = mean(value)): could not find function "%>%"
+glimpse(my_summary)
+#> Error in glimpse(my_summary): could not find function "glimpse"
+```
+
+\newpage
+
+## Task 5: Simulating p-values
+
+### Setting up simulated data
+
+```{r}
+set.seed(last3digplus) # setting seed
+
+# creating 3 simulations as specified
+sim1<- tibble(group = rep(1:1000, each = 100), val = rnorm(100000))
+sim2<- tibble(group = rep(1:1000, each = 100), val = rnorm(100000, mean = 0.2, sd = 1))
+sim3<- tibble(group = rep(1:1000, each = 100), val = rnorm(100000, mean = 1, sd = 1))
+
+#combining simulations
+allsim <- bind_rows(sim1, sim2, sim3, .id = "sim")
+
+#improving simulations descriptions
+sim_description <- tibble(sim = 1:3, desc = c("N(0, 1)", "N(0.2, 1)","N(1, 1)"))
+all_sim<-merge(allsim, sim_description, by="sim")
+
+```
+
+
+```{r, echo-FALSE, fig.cap = "Target first visualisation for task 5", fig.height = 4}
+#Graphing simulation values
+all_sim %>%
+filter(group <= 3) %>%
+ggplot(aes(x = val)) + # assigning coordinate data values
+geom_histogram(bins = 40) +
+facet_wrap(desc~group, nrow = 3) +
+theme_minimal() +
+labs(caption = "Created by Dhanraj Patel in STA303, Winter 2022")
+```
+
+### Calculating _p_ values
+
+```{r}
+pvals <- all_sim %>%
+  group_by(desc, group) %>%  # grouping by desc and group
+  summarize(pval = t.test(val, mu = 0)$p.value, .groups = "drop") #finding p values for groups
+```
+
+
+```{r, fig.height = 3, fig.cap = "Target second visualisation for task 5"}
+#Graphing p values
+pvals %>% 
+  ggplot(aes(x = pval)) + #coordinate data values
+  geom_histogram(boundary = 0, binwidth = 0.05, fill = "grey", color = "black") +
+  xlim(0,1) +
+  facet_wrap(~desc) +
+  theme_minimal() +
+  labs(caption = "Created by Dhanraj Patel in STA303, Winter 2022")
+
+```
+
+### Drawing Q-Q plots
+
+```{r, fig.height = 4, fig.cap = "Target third visualisation for task 5"}
+#Graphing qq plot values
+pvals %>%
+ggplot(aes(sample = pval)) +
+geom_qq(distribution = qunif) + ##applying qunif distribution
+geom_abline(intercept = 0, slope = 1) +
+facet_wrap(~desc) +
+theme_minimal() +
+labs(caption = "Created by Dhanraj Patel in STA303, Winter 2022")
+
+```
+
+### Conclusion and summary
+
+The p value in statistics is an incredibly powerful tool that allws you to assess if a significant deviation exists between two population parameters. As useful as it is, there are many things to be wary of when using it. This task was designed to allow to better understand what the p value signifies and contextual importance. We first start off by simulating 3 different normal distributions all with variance of 1 and a mean of 0, 0.2 and 1 respectively. With these simulations we were able to calculate 2-sided t.tests, where the null hypothesis is the the population mean is 0. We then created a histogram to understand how the p values for the simulations were all distributed. Lastly, we were able to assess the normality of these p values using a qq plot. The qq plot is connected to the pre knowledge quiz as it allows us to visualize how a simulation of N(0,1) one sample t tests would also be normally distruted. Lastly, to conclude in this tasks we were able to see how the normality and distribution varied for p values under different normal distribution values.
+
+\newpage
+
+# Writing sample
+
+The field of statistics lies between the worlds of science and art as with a single data set two experienced statisticians can come to differing conclusions. In his article, "Motulsky (2014) states that investigators at Bayer Healthcare were reportedly able to reproduce only 20–25 % of 67 preclinical studies." In contrast to these findings lies the quandary that it is vital that statistical studies be as reproducible as to allow the scientific to distinguish between factual and unlikely results. One of the main causes of unreplicable results is due to a poor understanding of statistical tools and one prime example of how the misuse of statistical tools can lead to unreproducible results is the use of P values. The two main ways that P values negatively impact the results of experiments is through p hacking and a misunderstanding of what P values convey.     
+
+When it comes to research there is an erroneous idea that a P value that shows non-significant result (>0.05) disqualifies the study from being meaningful. As such, many studies fall into the pitfall of P hacking which is to say that in the study the data and methods were modified to deliberately altered to produce a significant result. This can be done by altering the sample size until a desired outcome is achieved or creating the hypothesis after the results were already known. When P hacking as "Motulsky (2014) states is that the problem is that you introduce bias when you choose to collect more data (or analyze the data differently) only when the P value is greater than 0.05." When the hypothesis is chosen after the data and methods are known the bias introduced makes the results unreliable and then when the study is replicated it becomes difficult to replicate the results. One must be ethical when conducting their studies and keep in mind that a non significant P value is also scientifically valuable. 
+
+Aside from P hacking, a large source of unreplicable results from a poor understanding of what information the P value gives to the effect of the results of a study. It is erroneously believed that the smaller the P value means that the results were more significant and the larger the P value means that the results are less significant. This gives the impression that the smaller the P value the better the results. “As Motulsky (2014) states that the P value gives you no information about how large the difference (or effect) is” and using it as such will lead to an incorrect interpretation of the study findings.
+
+To conclude, when conducting studies statisticians should remain ethical and aim for their findings to be reproducible. They should avoid P hacking and incorrectly interpreting the meaning of the P value in their studies. This will allow the avoidance of bias and through transparent documentation and the proper use of statistical tools allow their studies to be reproducible. 
+
+
+
+**Word count:** 486 words
+
+
+## References
+
+> Motulsky, H. J. (2014). Common misconceptions about data analysis and statistics. *Naunyn-Schmiedeberg's Archives of Pharmacology*, *387*(11), 1017--1023. <https://doi.org/10.1007/s00210-014-1037-6>
+
+
+\newpage
+
+# Reflection
+
+### What is something specific that I am proud of in this portfolio?
+
+I am proud of how I was able to extend my knowledge of linear regression models to also include linear mixed models. Specifically in task number 2, i was able to apply my knowledge of linear mixed model to create and analyze linear mixed models and to a real world problem. By using my new learned knowledge I was able to choose the best fitting model to properly model which the fixed effects of treatment and how it interacted with the random effects of each plant in conjunction with the response variable of yield. I am proud how I was able to extend my statistical knowledge to new more complicated problems.  
+
+### How might I apply what I've learned and demonstrated in this portfolio in future work and study, after STA303?
+
+Before I took this course my knowledge of linear regression only involved fixed effects, now using linear mixed models I am able to extend my regression knowledge to involve random effects in addition to how fixed and random interact. When solving problems in future work linear mixed models are useful as they allow us include random effects along with fixed effects in a model. In addition, a large part of this portfolio is understanding the meaning and application of the p value, the p value is an incredibly important statistical tool that needs to be applied under the right pretexts and context of the study. 
+
+### What is something I'd do differently next time?
+
+One thing I would do differently next time is comment the code as I go along instead of leaving it for the very end. When working on a multi-day project it is important to document as you go. This is mainly due to the fact when combing back to your work after a couple of days it can be difficult to pick up right where you left off. Without proper comments you might be confused on what you were exactly doing where you last left off leading to a lot of wasted time redoing already done work. If you comment as you go along then you can more easily understand what you were doing where you last left off leading to less time waste. 
